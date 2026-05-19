@@ -40,6 +40,9 @@ def test_horizon_constants():
     assert config.TRAJECTORY_LEN == 144
     assert config.STEP_MIN == 10
     assert config.TRAJECTORY_LEN * config.STEP_MIN == 24 * 60  # 24 h coverage
+    # Pin the derived index so a unilateral change to HORIZON_REF_MIN or STEP_MIN fails loud
+    assert config.HORIZON_REF_IDX == config.HORIZON_REF_MIN // config.STEP_MIN
+    assert config.HORIZON_REF_IDX == 6
 
 
 def test_models_registry_keys():
