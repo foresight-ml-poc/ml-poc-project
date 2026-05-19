@@ -65,3 +65,16 @@ def test_metric_values_in_unit_interval():
     result = _metrics().compute_metrics(y_true, y_pred)
     for k, v in result.items():
         assert 0.0 <= v <= 1.0, f"{k}={v} outside [0, 1]"
+
+
+def test_compute_metrics_handles_single_class_y_true():
+    """y_true entirely 0 or entirely 1 → roc_auc=0.5 fallback, no ValueError."""
+    y_true = np.zeros(20, dtype=int)
+    y_pred = np.array([0, 1] * 10)
+    result = _metrics().compute_metrics(y_true, y_pred)
+    assert result["roc_auc"] == 0.5
+
+    # Same for the proba variant
+    y_proba = np.linspace(0.1, 0.9, 20)
+    result_proba = _metrics().compute_metrics_proba(y_true, y_proba)
+    assert result_proba["roc_auc"] == 0.5
