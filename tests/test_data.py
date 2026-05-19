@@ -66,3 +66,51 @@ def test_dataset_manifest_written():
     assert m["seed"] == 42
     assert 0.5 <= m["noise_sigma"] <= 1.5
     assert 0.5 <= m["interaction_scale"] <= 1.5
+
+
+def test_target_base_rate():
+    """Per brief §3.3: base rate ~52 %, not 50/50 pile.
+
+    Requires data.py to compute the target column from trajectories.
+    """
+    import sys
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
+    sys.modules["config"] = _config()
+    data = _load("project_data", DATA_PATH)
+    df = data._load_processed()
+    rate = df[_config().TARGET_COLUMN].mean()
+    assert 0.45 <= rate <= 0.60, f"Base rate {rate:.3f} outside [0.45, 0.60]"
+
+
+def test_split_is_walk_forward():
+    """load_dataset_split returns chronological 80/20 — no random shuffle."""
+    import sys
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
+    sys.modules["config"] = _config()
+    data = _load("project_data", DATA_PATH)
+    X_train, X_test, y_train, y_test = data.load_dataset_split()
+    cfg = _config()
+    n_total = len(y_train) + len(y_test)
+    assert n_total == cfg.N_SIGNALS
+    # Test size is 20% of total
+    assert 0.18 * cfg.N_SIGNALS <= len(y_test) <= 0.22 * cfg.N_SIGNALS
+    # Features are 30 columns (25 numeric + 5 bucket one-hot)
+    assert X_train.shape[1] == 30
+    assert X_test.shape[1] == 30
+
+
+def test_no_trajectory_data_in_features():
+    """Anti-leakage: scaled X must contain only the 26 allowlist features (post one-hot)."""
+    import sys
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
+    sys.modules["config"] = _config()
+    data = _load("project_data", DATA_PATH)
+    cfg = _config()
+    # _build_X_y is internal — call via the public split and verify shape
+    X_train, X_test, y_train, y_test = data.load_dataset_split()
+    # Exactly 30 columns = 25 named numeric + 5 bucket dummies (named "bucket" gets expanded)
+    assert X_train.shape[1] == 30
+    # Sanity: y is binary 0/1
+    import numpy as np
+    assert set(np.unique(y_train)).issubset({0, 1})
+    assert set(np.unique(y_test)).issubset({0, 1})

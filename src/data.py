@@ -1,30 +1,137 @@
-"""Student-owned dataset loading contract.
+"""Foresight dataset loader.
 
-Students must implement ``load_dataset_split`` so that ``scripts/main.py`` can
-evaluate every configured model on the same test split.
+Loads the 3000-signal CSV + 144-pt trajectories, computes the binary target
+at the reference horizon (60 min), applies the anti-leakage allowlist (only
+the 26 named FEATURES enter X), and returns a walk-forward split (last 20 %
+is test).
 """
-
 from __future__ import annotations
 
+import json
 from typing import Any
+
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+
+from config import (
+    BUCKETS, FEATURES, HORIZON_REF_IDX, OUTPUT_COLUMNS, PATHS_DIR,
+    PROCESSED_DATA_DIR, RAW_DATA_DIR, TARGET_COLUMN,
+)
+
+
+def _read_trajectory(signal_id: str) -> np.ndarray:
+    path = PATHS_DIR / f"{signal_id}.json"
+    return np.asarray(json.loads(path.read_text())["price"], dtype=float)
+
+
+def _compute_target(df: pd.DataFrame, horizon_idx: int) -> pd.Series:
+    """direction_correct@horizon: 1 if the move from price_start to
+    price[horizon_idx-1] matches the predicted direction.
+
+    horizon_idx is in 1..TRAJECTORY_LEN; we index trajectory[horizon_idx-1].
+    """
+    targets = np.zeros(len(df), dtype=int)
+    for i, row in enumerate(df.itertuples(index=False)):
+        traj = _read_trajectory(row.signal_id)
+        move = traj[horizon_idx - 1] - row.market_price_at_signal
+        if row.is_buy_yes == 1:
+            targets[i] = int(move > 0)
+        else:
+            targets[i] = int(move < 0)
+    return pd.Series(targets, index=df.index, name=TARGET_COLUMN)
+
+
+def _clean(df: pd.DataFrame) -> pd.DataFrame:
+    """Impute the 1–2 % missing values with column-wise medians (numeric)
+    / mode (categorical)."""
+    df = df.copy()
+    for col in df.columns:
+        if df[col].isna().any():
+            if df[col].dtype == "O" or col == "bucket":
+                df[col] = df[col].fillna(df[col].mode().iloc[0])
+            else:
+                df[col] = df[col].fillna(df[col].median())
+    return df
+
+
+def _feature_engineer(df: pd.DataFrame) -> pd.DataFrame:
+    """One-hot the bucket; ensure derived features exist."""
+    df = df.copy()
+    # Recompute derived features defensively (generator may have NaN'd some)
+    df["price_dist_from_0_5"] = (df["market_price_at_signal"] - 0.5).abs()
+    df["impact_x_specificity"] = df["impact_strength"] * df["specificity_score"]
+    # multi_source_confirmation is already in the CSV; leave as-is
+
+    # One-hot bucket (keep all 5 columns — no drop_first)
+    bucket_dummies = pd.get_dummies(df["bucket"], prefix="bucket")
+    for b in BUCKETS:
+        col = f"bucket_{b}"
+        if col not in bucket_dummies.columns:
+            bucket_dummies[col] = 0
+    df = pd.concat([df.drop(columns=["bucket"]), bucket_dummies], axis=1)
+    return df
+
+
+def _load_processed() -> pd.DataFrame:
+    """Read CSV + compute target + cache to parquet for repeated runs.
+
+    Note: the parquet cache is INVALIDATED when generate_dataset.py runs
+    (which removes/overwrites raw/signals_export_sample.csv). For correctness
+    after a generator run, delete data/processed/dataset.parquet first.
+    """
+    cache = PROCESSED_DATA_DIR / "dataset.parquet"
+    if cache.exists():
+        return pd.read_parquet(cache)
+
+    csv = RAW_DATA_DIR / "signals_export_sample.csv"
+    if not csv.exists():
+        raise FileNotFoundError(
+            f"{csv} not found. Run `python scripts/generate_dataset.py` first."
+        )
+    df = pd.read_csv(csv, parse_dates=["signal_timestamp"])
+    df = _clean(df)
+    df[TARGET_COLUMN] = _compute_target(df, HORIZON_REF_IDX)
+    PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(cache, index=False)
+    return df
+
+
+def _build_X_y(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """Apply allowlist + one-hot bucket → X. Build y from TARGET_COLUMN."""
+    df_fe = _feature_engineer(df)
+    y = df_fe[TARGET_COLUMN].astype(int)
+
+    # Anti-leakage allowlist: 26 named FEATURES minus "bucket" (replaced by 5 one-hot dummies)
+    allowed_named = [f for f in FEATURES if f != "bucket"]
+    bucket_cols = [f"bucket_{b}" for b in BUCKETS]
+    feature_cols = allowed_named + bucket_cols
+
+    # Defensive: none of OUTPUT_COLUMNS sneaks into X
+    for out_col in OUTPUT_COLUMNS:
+        assert out_col not in feature_cols, f"Output column {out_col} leaked into X"
+
+    X = df_fe[feature_cols].copy()
+    return X, y
 
 
 def load_dataset_split() -> tuple[Any, Any, Any, Any]:
-    """Return the dataset split used for model evaluation.
+    """Walk-forward split: time-sorted, last 20 % is test.
 
-    Expected return value:
-        A tuple ``(X_train, X_test, y_train, y_test)``.
-
-    Constraints:
-    - ``X_train`` and ``X_test`` must contain feature data in a format accepted
-      by the trained models stored in ``config.MODELS``.
-    - ``y_train`` and ``y_test`` must contain the corresponding targets.
-    - ``y_test`` must align with the predictions produced by each loaded model.
-
-    Typical choices for the return types are ``pandas.DataFrame`` /
-    ``pandas.Series`` or ``numpy.ndarray``.
+    Returns (X_train, X_test, y_train, y_test) as numpy arrays, with X
+    standardized using a StandardScaler fit on train ONLY (no leakage from test).
+    Order: chronological — NO random shuffle.
     """
+    df = _load_processed().sort_values("signal_timestamp").reset_index(drop=True)
+    X, y = _build_X_y(df)
 
-    raise NotImplementedError(
-        "Implement data.load_dataset_split() before running scripts/main.py."
-    )
+    n_test = int(len(df) * 0.20)
+    split_idx = len(df) - n_test
+    X_train_df, X_test_df = X.iloc[:split_idx], X.iloc[split_idx:]
+    y_train, y_test = y.iloc[:split_idx].to_numpy(), y.iloc[split_idx:].to_numpy()
+
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train_df.to_numpy(dtype=float))
+    X_test = scaler.transform(X_test_df.to_numpy(dtype=float))
+
+    return X_train, X_test, y_train, y_test
