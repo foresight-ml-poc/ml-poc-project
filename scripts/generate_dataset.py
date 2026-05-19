@@ -39,7 +39,10 @@ _MANIFEST_PATH = RAW_DATA_DIR / "dataset_manifest.json"
 
 
 def _resolve_tuning_params() -> tuple[float, float]:
-    """Return (noise_sigma, interaction_scale). Priority: env vars > manifest > defaults."""
+    """Return (noise_sigma, interaction_scale). Priority: env vars > manifest > defaults.
+
+    Raises ValueError if either resolved param is outside the safe range [0.3, 1.5].
+    """
     sigma_default, scale_default = 0.85, 1.0
     if _MANIFEST_PATH.exists():
         try:
@@ -48,13 +51,14 @@ def _resolve_tuning_params() -> tuple[float, float]:
             scale_default = float(stored.get("interaction_scale", scale_default))
         except (json.JSONDecodeError, ValueError):
             pass  # corrupted manifest → fall back to defaults
-    return (
-        float(os.environ.get("FORESIGHT_NOISE_SIGMA", sigma_default)),
-        float(os.environ.get("FORESIGHT_INTERACTION_SCALE", scale_default)),
-    )
-
-
-NOISE_SIGMA, INTERACTION_SCALE = _resolve_tuning_params()
+    sigma = float(os.environ.get("FORESIGHT_NOISE_SIGMA", sigma_default))
+    scale = float(os.environ.get("FORESIGHT_INTERACTION_SCALE", scale_default))
+    # Reject obvious garbage; tune_auc.py's widest attempt is sigma≈1.03, scale=0.85
+    if not (0.3 <= sigma <= 1.5):
+        raise ValueError(f"FORESIGHT_NOISE_SIGMA={sigma} outside safe range [0.3, 1.5]")
+    if not (0.3 <= scale <= 1.5):
+        raise ValueError(f"FORESIGHT_INTERACTION_SCALE={scale} outside safe range [0.3, 1.5]")
+    return sigma, scale
 
 
 def _sample_features(rng: np.random.Generator, n: int) -> pd.DataFrame:
@@ -139,16 +143,21 @@ def _sample_features(rng: np.random.Generator, n: int) -> pd.DataFrame:
     return df
 
 
-def _latent_edge(df: pd.DataFrame, rng: np.random.Generator) -> np.ndarray:
+def _latent_edge(
+    df: pd.DataFrame,
+    rng: np.random.Generator,
+    noise_sigma: float,
+    interaction_scale: float,
+) -> np.ndarray:
     """Non-linear latent edge. Returns log-odds (un-sigmoided).
 
-    INTERACTION_SCALE controls the strength of the non-linear interaction terms
+    interaction_scale controls the strength of the non-linear interaction terms
     (impact*specificity, novelty*impact). Used by tune_auc.py to cap the
     LightGBM ceiling: reducing it weakens the gap between linear and tree models
     without inflating noise (cleaner than always bumping sigma).
     """
     # Interaction core (scaled): impact helps only if specificity high AND ambiguity low
-    interaction = INTERACTION_SCALE * (
+    interaction = interaction_scale * (
         1.8 * df["impact_strength"].values * df["specificity_score"].values
         + 0.7 * df["novelty_score"].values * df["impact_strength"].values
     )
@@ -169,7 +178,7 @@ def _latent_edge(df: pd.DataFrame, rng: np.random.Generator) -> np.ndarray:
         "Economy": 0.00, "Sports": -0.05,
     }).fillna(0.0).values
     # Noise (env-tunable); default 0.85 caps AUC ~0.82
-    noise = rng.normal(0.0, NOISE_SIGMA, len(df))
+    noise = rng.normal(0.0, noise_sigma, len(df))
     return interaction + linear + micro + bucket_effect + noise - 1.2
 
 
@@ -217,9 +226,10 @@ def _inject_missing(df: pd.DataFrame, rng: np.random.Generator, rate: float = 0.
 
 
 def main() -> None:
+    noise_sigma, interaction_scale = _resolve_tuning_params()
     rng = np.random.default_rng(SEED)
     print(f"Generating {N_SIGNALS} signals with seed={SEED}  "
-          f"NOISE_SIGMA={NOISE_SIGMA}  INTERACTION_SCALE={INTERACTION_SCALE}")
+          f"NOISE_SIGMA={noise_sigma}  INTERACTION_SCALE={interaction_scale}")
 
     df = _sample_features(rng, N_SIGNALS)
 
@@ -230,7 +240,7 @@ def main() -> None:
     df = df.sort_values("signal_timestamp").reset_index(drop=True)
     df["signal_id"] = [f"sig_{i:05d}" for i in range(N_SIGNALS)]
 
-    edges = _latent_edge(df, rng)
+    edges = _latent_edge(df, rng, noise_sigma, interaction_scale)
     horizon_mod = _horizon_modulation(TRAJECTORY_LEN)
 
     print(f"Simulating {TRAJECTORY_LEN}-pt trajectories...")
@@ -270,12 +280,12 @@ def main() -> None:
         "n_signals": N_SIGNALS,
         "trajectory_len": TRAJECTORY_LEN,
         "step_min": STEP_MIN,
-        "noise_sigma": NOISE_SIGMA,
-        "interaction_scale": INTERACTION_SCALE,
+        "noise_sigma": noise_sigma,
+        "interaction_scale": interaction_scale,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
     _MANIFEST_PATH.write_text(json.dumps(manifest, indent=2))
-    print(f"Wrote {_MANIFEST_PATH} (sigma={NOISE_SIGMA}, scale={INTERACTION_SCALE}).")
+    print(f"Wrote {_MANIFEST_PATH} (sigma={noise_sigma}, scale={interaction_scale}).")
 
 
 if __name__ == "__main__":
