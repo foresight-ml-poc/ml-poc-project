@@ -16,3 +16,6 @@ seaborn
 statsmodels
 streamlit
 xgboost
+lightgbm
+shap
+pytest

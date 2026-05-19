@@ -317,3 +317,15 @@ http-client.private.env.json
 
 # Exclude logs directory
 logs/*
+
+# Foresight POC additions
+data/raw/paths/
+data/processed/
+models/*.joblib
+models/*.pkl
+models/*.pickle
+!models/model_card.json
+results/*.json
+results/*.npz
+# Keep model_metrics.csv (Basile contract artifact)
+.streamlit/
