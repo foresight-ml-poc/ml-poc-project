@@ -26,14 +26,30 @@ def _read_trajectory(signal_id: str) -> np.ndarray:
 
 
 def _compute_target(df: pd.DataFrame, horizon_idx: int) -> pd.Series:
-    """direction_correct@horizon: 1 if the move from price_start to
-    price[horizon_idx-1] matches the predicted direction.
+    """Compute direction_correct@horizon as a binary target.
 
-    horizon_idx is in 1..TRAJECTORY_LEN; we index trajectory[horizon_idx-1].
+    Trajectory index convention (see scripts/generate_dataset.py _simulate_trajectory):
+        trajectory[i] = price AFTER step (i+1) has elapsed
+                      = price at t = (i+1) * STEP_MIN minutes
+        trajectory[0]    -> t =   10 min
+        trajectory[5]    -> t =   60 min  (HORIZON_REF_IDX=6 → Branch A target)
+        trajectory[143]  -> t = 1440 min  (24 h)
+    price_start (the t=0 price) is stored separately in market_price_at_signal,
+    NOT as trajectory[0].
+
+    So for horizon_idx h (1-indexed, like HORIZON_REF_IDX), we read
+    trajectory[h - 1], which is the price at t = h * STEP_MIN minutes after the signal.
+
+    Target = 1 iff the realized move matches the predicted direction:
+        is_buy_yes=1  → target=1 iff price@horizon > price_start
+        is_buy_yes=0  → target=1 iff price@horizon < price_start
     """
     targets = np.zeros(len(df), dtype=int)
     for i, row in enumerate(df.itertuples(index=False)):
         traj = _read_trajectory(row.signal_id)
+        assert horizon_idx >= 1 and horizon_idx <= len(traj), (
+            f"horizon_idx={horizon_idx} outside trajectory length {len(traj)}"
+        )
         move = traj[horizon_idx - 1] - row.market_price_at_signal
         if row.is_buy_yes == 1:
             targets[i] = int(move > 0)
@@ -90,6 +106,11 @@ def _load_processed() -> pd.DataFrame:
             f"{csv} not found. Run `python scripts/generate_dataset.py` first."
         )
     df = pd.read_csv(csv, parse_dates=["signal_timestamp"])
+    if df["signal_id"].isna().any():
+        raise ValueError(
+            f"{csv} has {df['signal_id'].isna().sum()} rows with null signal_id — "
+            "regenerate with `python scripts/generate_dataset.py`."
+        )
     df = _clean(df)
     df[TARGET_COLUMN] = _compute_target(df, HORIZON_REF_IDX)
     PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)

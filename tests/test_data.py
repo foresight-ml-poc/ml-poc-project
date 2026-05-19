@@ -94,7 +94,7 @@ def test_split_is_walk_forward():
     assert n_total == cfg.N_SIGNALS
     # Test size is 20% of total
     assert 0.18 * cfg.N_SIGNALS <= len(y_test) <= 0.22 * cfg.N_SIGNALS
-    # Features are 30 columns (25 numeric + 5 bucket one-hot)
+    # Features are 30 columns (25 non-bucket named features + 5 bucket one-hot dummies)
     assert X_train.shape[1] == 30
     assert X_test.shape[1] == 30
 
@@ -108,9 +108,24 @@ def test_no_trajectory_data_in_features():
     cfg = _config()
     # _build_X_y is internal — call via the public split and verify shape
     X_train, X_test, y_train, y_test = data.load_dataset_split()
-    # Exactly 30 columns = 25 named numeric + 5 bucket dummies (named "bucket" gets expanded)
+    # Exactly 30 columns = 25 non-bucket named features + 5 bucket dummies (FEATURES has 26 entries; "bucket" expanded)
     assert X_train.shape[1] == 30
     # Sanity: y is binary 0/1
     import numpy as np
     assert set(np.unique(y_train)).issubset({0, 1})
     assert set(np.unique(y_test)).issubset({0, 1})
+
+
+def test_horizon_index_maps_to_60min():
+    """Pin the trajectory[HORIZON_REF_IDX-1] == price at t=60 min convention."""
+    import json
+    cfg = _config()
+    sample_path = next(cfg.PATHS_DIR.glob("*.json"))
+    traj_data = json.loads(sample_path.read_text())
+    assert traj_data["step_min"] == 10
+    assert len(traj_data["price"]) == cfg.TRAJECTORY_LEN
+    # trajectory[i] represents price at t = (i+1) * STEP_MIN minutes.
+    # HORIZON_REF_IDX is 1-indexed (step number), so trajectory[HORIZON_REF_IDX-1] is at
+    # t = HORIZON_REF_IDX * STEP_MIN minutes = 60 min. Pin this so it can never drift silently.
+    assert cfg.HORIZON_REF_IDX == 6
+    assert cfg.HORIZON_REF_IDX * cfg.STEP_MIN == 60
