@@ -172,15 +172,21 @@ def fig_shap_beeswarm():
     names = list(payload["feature_names"])
 
     try:
-        fig = plt.figure(figsize=(11, 7.5), dpi=150, facecolor=P["bg"])
-        header = fig.add_axes([0.06, 0.92, 0.88, 0.06])
+        # Wider canvas (13" instead of 11") + larger left margin (0.28 instead of
+        # 0.18) so long feature names like multi_source_confirmation and
+        # impact_x_specificity fit without cropping on the left.
+        fig = plt.figure(figsize=(13, 7.5), dpi=150, facecolor=P["bg"])
+        header = fig.add_axes([0.05, 0.92, 0.90, 0.06])
         header.axis("off")
-        header.text(0, 0.6, "What drives the LightGBM prediction?",
+        header.text(0, 0.6, "Qu'est-ce qui drive la prédiction LightGBM ?",
                     color=P["ink"], fontsize=20, fontweight="bold")
-        header.text(0, 0.05, "SHAP beeswarm — top features by impact magnitude.",
-                    color=P["muted"], fontsize=11)
+        header.text(0, 0.05,
+                    "SHAP beeswarm — chaque point = un signal du test set. "
+                    "Position = contribution (SHAP value), couleur = valeur du feature "
+                    "(rouge haut, bleu bas), ordre = importance globale (top 12).",
+                    color=P["muted"], fontsize=10)
 
-        ax = fig.add_axes([0.18, 0.08, 0.78, 0.80])
+        ax = fig.add_axes([0.28, 0.08, 0.65, 0.80])
         ax.set_facecolor(P["card"])
         shap.summary_plot(
             values, features=data, feature_names=names,
