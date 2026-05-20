@@ -171,18 +171,19 @@ def _latent_edge(
 
     ambig_gate = np.clip(0.5 - ambig, 0.0, 1.0)  # 0 when ambig≥0.5, max 0.5 at ambig=0
     interaction = interaction_scale * (
-        4.5 * impact * spec * ambig_gate
-        + 2.0 * novelty * impact * llm
-        + 1.5 * np.where(cosine > 0.55, impact * spec, 0.0)  # threshold gate on cosine
+        6.5 * impact * spec * ambig_gate
+        + 3.0 * novelty * impact * llm
+        + 2.2 * np.where(cosine > 0.55, impact * spec, 0.0)  # threshold gate on cosine
     )
-    # Linear core (NOT scaled). Weaker than before so the linear baseline can't outpace
-    # the non-linear lift.
+    # Linear core (NOT scaled). Ambiguity and cosine coefficients sized to give LogReg-8
+    # (which can't see those features through the heuristic factor list) a 3-5 AUC point
+    # lift over the heuristic.
     linear = (
-        - 0.7 * ambig
-        + 0.4 * cosine
-        + 0.5 * multi
-        + 0.35 * llm
-        + 0.3 * impact
+        - 1.0 * ambig
+        + 0.6 * cosine
+        + 0.7 * multi
+        + 0.5 * llm
+        + 0.45 * impact
     )
     # Microstructure: tight spread + high liquidity favor the move
     spread_norm = np.clip(df["bid_ask_spread"].values / 0.05, 0, 2)
@@ -196,7 +197,7 @@ def _latent_edge(
     # Noise (env-tunable); default 0.85 caps AUC ~0.82
     noise = rng.normal(0.0, noise_sigma, len(df))
     # Global shift adjusted to keep base rate ~0.52 given the gated interaction terms
-    return interaction + linear + micro + bucket_effect + noise - 0.9
+    return interaction + linear + micro + bucket_effect + noise - 1.4
 
 
 def _horizon_modulation(steps: int) -> np.ndarray:
@@ -219,15 +220,24 @@ def _simulate_trajectory(
     horizon_mod: np.ndarray,
     rng: np.random.Generator,
 ) -> np.ndarray:
-    """Return a 144-pt price trajectory. Brownian + drift = horizon_mod[t] * sign * tanh(edge).
+    """Return a 144-pt price trajectory. Brownian + drift that fades after ~2-3 h.
 
-    Drift / noise multipliers (0.025 / 0.4) calibrated to land LightGBM walk-forward
-    AUC in the brief target window [0.70, 0.82] with default sigma=0.85 + scale=1.0.
+    The drift's `drift_window` envelope makes the directional signal saturate after
+    ~18 steps (3 h) — modeling "the market has digested the news". Past that, only
+    Brownian noise accumulates. Without this fade, cumulative drift grows linearly
+    forever and the per-horizon AUC monotonically rises through 24 h, violating the
+    brief's "érosion à 24 h" expectation.
     """
     n = len(horizon_mod)
     edge_signed = np.tanh(edge) * 0.025  # max ~2.5 % drift per step at peak
     direction = 1 if is_buy_yes == 1 else -1
-    drift = direction * edge_signed * horizon_mod
+    # Gaussian drift envelope centered at step 3 (30 min), sigma=6 (~60 min half-width).
+    # Cumulative drift saturates by step ~12 (2 h); by step 24 (4 h) drift is near-zero,
+    # so the per-horizon AUC peaks in the 60-120 min window then erodes through 24 h
+    # as Brownian noise keeps accumulating without further signal injection.
+    t_idx = np.arange(n)
+    drift_window = np.exp(-((t_idx - 3) ** 2) / (2 * 6 ** 2))
+    drift = direction * edge_signed * horizon_mod * drift_window
     noise = rng.normal(0.0, volatility * 0.4, n)
     increments = drift + noise
     prices = np.clip(price_start + np.cumsum(increments), 0.01, 0.99)
