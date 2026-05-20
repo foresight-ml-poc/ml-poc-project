@@ -106,7 +106,9 @@ def _stage(num: int, total: int, label: str):
 # Section 1: Le problème
 # ---------------------------------------------------------------------------
 
-def _section_problem():
+def _section_product():
+    """Section 1 — hook the audience: explain Foresight in 30 seconds before
+    diving into anything technical."""
     st.markdown("# Foresight")
     st.markdown(
         "<div class='muted' style='margin-top:-12px;font-size:14px;'>"
@@ -114,18 +116,70 @@ def _section_problem():
         unsafe_allow_html=True,
     )
     st.markdown("&nbsp;")
-    _stage(1, 8, "Le problème")
+    _stage(1, 8, "Le produit")
+    st.markdown("## En 30 secondes")
+    col_text, col_card = st.columns([3, 2])
+    with col_text:
+        st.markdown(
+            "<div class='lead'>"
+            "<strong>Polymarket</strong> est une plateforme où des milliers de "
+            "gens parient en temps réel sur l'actualité — élections, prix du "
+            "Bitcoin, sortie d'un produit. Chaque marché est binaire : on achète "
+            "« OUI » ou « NON », le prix se balade entre 0 et 1 et représente "
+            "la probabilité implicite vue par la foule. À la résolution, le bon "
+            "côté vaut 1 $, l'autre 0 $.<br><br>"
+            "<strong>Foresight</strong> surveille la presse 24/7. Dès qu'une "
+            "news touche un de ces marchés, le pipeline fabrique en quelques "
+            "secondes un <strong>signal typé</strong> : direction (acheter OUI "
+            "ou acheter NON), score de conviction 0–100, fenêtre d'action. Il "
+            "en sort plusieurs par heure aux pics d'actualité.<br><br>"
+            "Aujourd'hui ces signaux sont scorés par une formule à 8 facteurs "
+            "aux poids devinés à la main. Ça marche, mais ça plafonne. "
+            "<strong>Ce POC montre comment le ML peut faire mieux</strong> — et "
+            "surtout, nous dire <em>quand</em> agir."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    with col_card:
+        st.markdown(
+            f"""
+            <div class='signal-card' style='border-color:{P['mint']}'>
+              <div style='display:flex;gap:10px;align-items:center'>
+                <span class='pill-buy'>BUY_YES</span>
+                <span class='kpi-label'>Politics · NYC mayoral race</span>
+              </div>
+              <div class='kpi' style='margin-top:10px'>84 / 100</div>
+              <div class='kpi-label'>conviction LightGBM @ 60 min</div>
+              <div class='muted' style='margin-top:14px;font-size:13px'>
+                impact 0,72 · spécificité 0,80 · ambiguïté 0,18<br>
+                liq 18 k$ · spread 1,8 %
+              </div>
+            </div>
+            <div class='muted' style='font-size:12px;text-align:center;margin-top:8px'>
+              Exemple de carte signal Foresight
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Section 2: Le problème
+# ---------------------------------------------------------------------------
+
+def _section_problem():
+    _stage(2, 8, "Le problème")
     st.markdown("## L'heuristique plafonne. On laisse des trades sur la table.")
     st.markdown(
         "<div class='lead'>"
-        "Polymarket héberge 100+ marchés de prédiction binaires actifs à toute "
-        "heure. Quand une news bouge un de ces marchés, Foresight émet un "
-        "signal typé : direction (BUY_YES/BUY_NO) + score de conviction. "
-        "Aujourd'hui ce score est calculé par une heuristique linéaire à "
-        "8 facteurs, avec des poids devinés à la main. <strong>Elle plafonne "
+        "La formule actuelle pèse 8 facteurs linéairement, avec des poids "
+        "choisis à l'œil par les ingénieurs Foresight. <strong>Elle plafonne "
         "à AUC ~0,69 sur le test set</strong> — autant dire qu'elle rate les "
         "interactions entre variables (par ex. l'impact ne compte vraiment "
-        "que si la news est spécifique <em>et</em> peu ambiguë)."
+        "que si la news est spécifique <em>et</em> peu ambiguë). Et elle ne "
+        "dit rien sur le bon moment pour agir : elle donne le même score "
+        "quelle que soit la fenêtre temporelle. Deux limites, deux questions "
+        "à laquelle ce POC va répondre."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -158,49 +212,6 @@ def _section_problem():
             f"et nous dire <strong>quand</strong> agir ?"
             f"</div>"
             f"</div>",
-            unsafe_allow_html=True,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Section 2: Le contexte produit
-# ---------------------------------------------------------------------------
-
-def _section_context():
-    _stage(2, 8, "Le contexte")
-    st.markdown("## C'est quoi un signal Foresight ?")
-    col_text, col_card = st.columns([3, 2])
-    with col_text:
-        st.markdown(
-            "<div class='lead'>"
-            "Un <strong>marché de prédiction binaire</strong> demande : "
-            "« est-ce que X arrivera ? » Le prix se balade entre 0 et 1 et "
-            "représente la probabilité implicite vue par le marché. À la "
-            "résolution, OUI vaut 1 $ et NON 0 $ (ou l'inverse).<br><br>"
-            "Foresight surveille l'actualité 24/7. Quand une news touche un "
-            "marché actif, le pipeline produit en quelques secondes une "
-            "<strong>carte signal</strong> typée : direction, conviction 0–100, "
-            "et une fenêtre actionnable. C'est cet objet qu'on cherche à "
-            "scorer plus finement."
-            "</div>",
-            unsafe_allow_html=True,
-        )
-    with col_card:
-        st.markdown(
-            f"""
-            <div class='signal-card' style='border-color:{P['mint']}'>
-              <div style='display:flex;gap:10px;align-items:center'>
-                <span class='pill-buy'>BUY_YES</span>
-                <span class='kpi-label'>Politics · NYC mayoral race</span>
-              </div>
-              <div class='kpi' style='margin-top:10px'>84 / 100</div>
-              <div class='kpi-label'>conviction LightGBM @ 60 min</div>
-              <div class='muted' style='margin-top:14px;font-size:13px'>
-                impact 0,72 · spécificité 0,80 · ambiguïté 0,18<br>
-                liq 18 k$ · spread 1,8 %
-              </div>
-            </div>
-            """,
             unsafe_allow_html=True,
         )
 
@@ -330,15 +341,19 @@ def _section_branch_a():
     st.markdown("## Peut-on faire mieux que l'heuristique sur la même donnée ?")
     st.markdown(
         "<div class='lead'>"
-        "Trois modèles, exactement le même split walk-forward (mêmes signaux "
-        "en train, mêmes signaux en test), même cible à 60 min. Seule la "
+        "Une heuristique et deux modèles ML, <strong>évalués sur exactement le "
+        "même test set</strong> (mêmes 600 signaux, même cible à 60 min). "
+        "LogReg-8 et LightGBM sont entraînés sur les 2400 signaux du train ; "
+        "l'heuristique, elle, a des poids fixés à la main — pas de phase "
+        "d'apprentissage, pas besoin du train set. Seule la "
         "<strong>représentation</strong> des features change : l'heuristique et "
-        "le LogReg-8 voient 8 facteurs normalisés ; LightGBM voit la matrice "
-        "complète à 30 colonnes et peut modéliser les interactions. Le lift "
-        "qu'on voit n'est <em>pas</em> un artefact de splits différents."
+        "LogReg-8 voient les 8 facteurs normalisés du brief §1 ; LightGBM voit "
+        "la matrice complète à 30 colonnes et peut modéliser les interactions. "
+        "Le lift qu'on voit n'est donc pas un artefact de splits différents."
         "</div>",
         unsafe_allow_html=True,
     )
+    st.markdown("&nbsp;")
 
     card = _load_card()
     a = card["branch_a"]
@@ -661,9 +676,9 @@ def build_app() -> None:
     st.set_page_config(page_title="Foresight POC", layout="wide")
     _css()
 
-    _section_problem()
+    _section_product()
     st.divider()
-    _section_context()
+    _section_problem()
     st.divider()
     _section_data()
     st.divider()
