@@ -156,17 +156,33 @@ def _latent_edge(
     LightGBM ceiling: reducing it weakens the gap between linear and tree models
     without inflating noise (cleaner than always bumping sigma).
     """
-    # Interaction core (scaled): impact helps only if specificity high AND ambiguity low
+    # Interaction core (scaled): non-linear gated terms. The `ambig_gate` is a ReLU-like
+    # piecewise-linear function (0 above ambiguity≈0.5, ramps up to 0.5 below). Trees
+    # capture this with a single split; LogReg can only approximate it via the linear
+    # ambiguity coefficient → systematic gap in favor of LightGBM, *even though* LogReg
+    # has `impact_x_specificity` as a derived linear feature.
+    impact = df["impact_strength"].values
+    spec = df["specificity_score"].values
+    ambig = df["ambiguity_score"].values
+    novelty = df["novelty_score"].values
+    llm = df["llm_confidence"].values
+    cosine = df["cosine_score"].values
+    multi = df["multi_source_confirmation"].values
+
+    ambig_gate = np.clip(0.5 - ambig, 0.0, 1.0)  # 0 when ambig≥0.5, max 0.5 at ambig=0
     interaction = interaction_scale * (
-        1.8 * df["impact_strength"].values * df["specificity_score"].values
-        + 0.7 * df["novelty_score"].values * df["impact_strength"].values
+        4.5 * impact * spec * ambig_gate
+        + 2.0 * novelty * impact * llm
+        + 1.5 * np.where(cosine > 0.55, impact * spec, 0.0)  # threshold gate on cosine
     )
-    # Linear core (NOT scaled — these are the "easy" signals the linear model already catches)
+    # Linear core (NOT scaled). Weaker than before so the linear baseline can't outpace
+    # the non-linear lift.
     linear = (
-        - 1.4 * df["ambiguity_score"].values
-        + 0.8 * df["cosine_score"].values
-        + 0.9 * df["multi_source_confirmation"].values
-        + 0.6 * df["llm_confidence"].values
+        - 0.7 * ambig
+        + 0.4 * cosine
+        + 0.5 * multi
+        + 0.35 * llm
+        + 0.3 * impact
     )
     # Microstructure: tight spread + high liquidity favor the move
     spread_norm = np.clip(df["bid_ask_spread"].values / 0.05, 0, 2)
@@ -179,7 +195,8 @@ def _latent_edge(
     }).fillna(0.0).values
     # Noise (env-tunable); default 0.85 caps AUC ~0.82
     noise = rng.normal(0.0, noise_sigma, len(df))
-    return interaction + linear + micro + bucket_effect + noise - 1.2
+    # Global shift adjusted to keep base rate ~0.52 given the gated interaction terms
+    return interaction + linear + micro + bucket_effect + noise - 0.9
 
 
 def _horizon_modulation(steps: int) -> np.ndarray:
@@ -202,12 +219,16 @@ def _simulate_trajectory(
     horizon_mod: np.ndarray,
     rng: np.random.Generator,
 ) -> np.ndarray:
-    """Return a 144-pt price trajectory. Brownian + drift = horizon_mod[t] * sign * tanh(edge)."""
+    """Return a 144-pt price trajectory. Brownian + drift = horizon_mod[t] * sign * tanh(edge).
+
+    Drift / noise multipliers (0.025 / 0.4) calibrated to land LightGBM walk-forward
+    AUC in the brief target window [0.70, 0.82] with default sigma=0.85 + scale=1.0.
+    """
     n = len(horizon_mod)
-    edge_signed = np.tanh(edge) * 0.012  # max ~1.2 % drift per step at peak
+    edge_signed = np.tanh(edge) * 0.025  # max ~2.5 % drift per step at peak
     direction = 1 if is_buy_yes == 1 else -1
     drift = direction * edge_signed * horizon_mod
-    noise = rng.normal(0.0, volatility * 0.6, n)
+    noise = rng.normal(0.0, volatility * 0.4, n)
     increments = drift + noise
     prices = np.clip(price_start + np.cumsum(increments), 0.01, 0.99)
     return prices
