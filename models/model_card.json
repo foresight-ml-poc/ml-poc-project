@@ -1,0 +1,125 @@
+{
+  "seed": 42,
+  "n_signals": 3000,
+  "n_features": 30,
+  "features_allowlist": [
+    "impact_strength",
+    "llm_confidence",
+    "ambiguity_score",
+    "specificity_score",
+    "cosine_score",
+    "novelty_score",
+    "sentiment_polarity",
+    "articles_count",
+    "unique_sources_count",
+    "tier1_count",
+    "tier2_count",
+    "tier3_count",
+    "source_weight",
+    "freshness_min",
+    "market_price_at_signal",
+    "bid_ask_spread",
+    "liquidity_depth",
+    "volatility_pre_24h",
+    "time_to_resolution_h",
+    "bucket",
+    "hour_of_day",
+    "day_of_week",
+    "is_buy_yes",
+    "price_dist_from_0_5",
+    "impact_x_specificity",
+    "multi_source_confirmation"
+  ],
+  "horizon_ref_min": 60,
+  "split": "walk_forward_80_20_time_sorted",
+  "models": {
+    "log_reg": {
+      "cv": {
+        "roc_auc": 0.7527667200416956
+      },
+      "walk_forward": {
+        "accuracy": 0.7116666666666667,
+        "precision": 0.7461300309597523,
+        "recall": 0.7259036144578314,
+        "f1": 0.7358778625954199,
+        "roc_auc": 0.7836495234670023
+      }
+    },
+    "random_forest": {
+      "cv": {
+        "roc_auc": 0.7515129494557857
+      },
+      "walk_forward": {
+        "accuracy": 0.7233333333333334,
+        "precision": 0.7610062893081762,
+        "recall": 0.7289156626506024,
+        "f1": 0.7446153846153846,
+        "roc_auc": 0.7851105916202122
+      }
+    },
+    "lightgbm": {
+      "cv": {
+        "roc_auc": 0.7405865732440935
+      },
+      "walk_forward": {
+        "accuracy": 0.695,
+        "precision": 0.7292307692307692,
+        "recall": 0.713855421686747,
+        "f1": 0.7214611872146118,
+        "roc_auc": 0.7799294191692143
+      }
+    }
+  },
+  "branch_a": {
+    "heuristic_hand": {
+      "roc_auc": 0.6884103578493077,
+      "accuracy": 0.625
+    },
+    "logreg_8_learned": {
+      "roc_auc": 0.7051114907390756,
+      "accuracy": 0.6616666666666666
+    },
+    "lightgbm_26": {
+      "roc_auc": 0.7799294191692143,
+      "accuracy": 0.695
+    }
+  },
+  "branch_b_peak_idx": 5,
+  "branch_b_peak_minute": 60,
+  "archetypes": {
+    "n_clusters": 2,
+    "silhouette": 0.07071133804942047,
+    "ari": 0.005785960598195141,
+    "cluster_sizes": [
+      272,
+      328
+    ],
+    "profiles": {
+      "cluster_0": {
+        "source_weight": 0.8487684155276647,
+        "tier3_count": -0.7646238851458669,
+        "multi_source_confirmation": 0.6762975531539986,
+        "tier1_count": 0.591877028445104,
+        "articles_count": -0.4303230396802091,
+        "unique_sources_count": -0.2773365529813668,
+        "tier2_count": 0.2747410596495065,
+        "ambiguity_score": -0.15912789339094732
+      },
+      "cluster_1": {
+        "source_weight": -0.7419249983218493,
+        "tier3_count": 0.72902035978084,
+        "multi_source_confirmation": -0.5866372760188133,
+        "tier1_count": -0.5368497759971506,
+        "articles_count": 0.49301770781008725,
+        "unique_sources_count": 0.3220734335509168,
+        "ambiguity_score": 0.24862746737530286,
+        "tier2_count": -0.17798283829066783
+      }
+    },
+    "artifact_path": "models/kmeans.joblib"
+  },
+  "dataset_tuning": {
+    "noise_sigma": 0.85,
+    "interaction_scale": 1.0
+  }
+}
