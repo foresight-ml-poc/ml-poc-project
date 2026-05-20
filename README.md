@@ -1,12 +1,3 @@
-# Foresight — POC ML (signaux Polymarket)
-
-**Cadre.** Projet scolaire (POC). Le produit Foresight est réel (concept, infra,
-heuristique). Le professeur laisse l'étudiant libre de construire le scénario de
-démonstration : ce repo est un fork propre du squelette `basile-desjuzeur/ml-poc-project`,
-sur lequel tout a été construit à neuf — dataset représentatif, pipeline ML,
-figures, rapport, deck. Aucun élément de l'ancien `foresight-ml-poc/ml-foresight`
-n'est réutilisé.
-
 ## Pitch (30 s)
 
 Polymarket = marchés de prédiction binaires (OUI/NON, prix = probabilité). Foresight
