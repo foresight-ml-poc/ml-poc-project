@@ -1,0 +1,4 @@
+model_key,model_name,model_path,accuracy,precision,recall,f1,roc_auc
+log_reg,Logistic Regression,/Users/vadim/foresight-poc/models/log_reg.joblib,0.7116666666666667,0.7461300309597523,0.7259036144578314,0.7358778625954199,0.70996673260205
+random_forest,Random Forest,/Users/vadim/foresight-poc/models/random_forest.joblib,0.7233333333333334,0.7610062893081762,0.7289156626506024,0.7446153846153846,0.7226667865491818
+lightgbm,LightGBM (hero),/Users/vadim/foresight-poc/models/lightgbm.joblib,0.695,0.7292307692307692,0.713855421686747,0.7214611872146118,0.6927486063657615
