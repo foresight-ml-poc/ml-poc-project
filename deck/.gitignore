@@ -1,0 +1,5 @@
+.DS_Store
+v2-*.png
+d?.png
+.playwright-mcp/
+assets/

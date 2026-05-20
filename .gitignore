@@ -328,4 +328,5 @@ models/*.pickle
 results/*.json
 results/*.npz
 # Keep model_metrics.csv (Basile contract artifact)
+results/deck_check.pdf
 .streamlit/
