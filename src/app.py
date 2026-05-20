@@ -479,23 +479,37 @@ def _section_proof():
     st.markdown("## L'AUC c'est joli. Le P&L c'est la vérité.")
     st.markdown(
         "<div class='lead'>"
-        "Backtest réaliste sur le test set : pour chaque signal au-dessus du seuil "
-        "de décision (0,50), on simule l'entrée au prix marché et la sortie 60 "
-        "minutes plus tard sur la trajectoire enregistrée. <strong>Payoff = "
-        "direction × (prix @ 60 min − prix d'entrée) − 4 % de spread round-trip</strong> "
-        "(coût réaliste pour un marché Polymarket mid-tier). Un trade "
-        "« directionnellement correct mais mouvement trop petit » devient perdant — "
-        "c'est exactement ce que le brief impose pour ne pas gonfler le winrate."
+        "Backtest réaliste sur le test set, avec une comparaison <strong>juste à "
+        "volume égal</strong> : chaque approche trade ses <strong>300 signaux les plus "
+        "convaincants</strong> (= moitié du test). Pour chaque trade, on simule "
+        "l'entrée au prix marché et la sortie 60 minutes plus tard sur la trajectoire "
+        "enregistrée. <strong>Payoff = direction × (prix @ 60 min − prix d'entrée) "
+        "− 4 % de spread round-trip</strong> (coût réaliste pour un marché Polymarket "
+        "mid-tier). Un trade « directionnellement correct mais mouvement trop petit » "
+        "devient perdant — c'est exactement ce que le brief définit par « net de "
+        "spread »."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("&nbsp;")
+    st.markdown(
+        "<div class='lead'>"
+        "<strong>Pourquoi top-K et pas un seuil fixe ?</strong> Parce que les modèles "
+        "ont des distributions de score différentes : à seuil 0,50, LogReg-8 inclut "
+        "plus de signaux marginaux que l'heuristique, ce qui tire son winrate vers "
+        "le bas par effet de volume — pas de ranking. Le top-K élimine ce biais "
+        "(même volume partout) et fait apparaître la vraie hiérarchie : LightGBM "
+        "range mieux ses meilleurs paris."
         "</div>",
         unsafe_allow_html=True,
     )
     st.image(str(PLOTS_DIR / "06_backtest_calibration.png"))
     st.caption(
         "Les trois winrates en bas à droite sont **calculés depuis la donnée** "
-        "(pas hardcodés depuis le brief). Equity curve en haut à gauche = "
-        "P&L cumulé LightGBM trade après trade. Calibration en bas à droite : "
-        "plus la courbe colle à la diagonale, plus les probabilités du modèle "
-        "sont fiables — utile pour choisir le seuil en production."
+        "à volume égal (top-300 par modèle). Equity curve en haut à gauche = P&L "
+        "cumulé LightGBM trade par trade, chronologique. Calibration en bas à "
+        "droite : plus la courbe colle à la diagonale, plus les probabilités du "
+        "modèle sont fiables."
     )
 
 
