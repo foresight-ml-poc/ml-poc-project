@@ -172,14 +172,45 @@ def _section_problem():
     st.markdown("## L'heuristique plafonne. On laisse des trades sur la table.")
     st.markdown(
         "<div class='lead'>"
-        "La formule actuelle pèse 8 facteurs linéairement, avec des poids "
-        "choisis à l'œil par les ingénieurs Foresight. <strong>Elle plafonne "
-        "à AUC ~0,69 sur le test set</strong> — autant dire qu'elle rate les "
-        "interactions entre variables (par ex. l'impact ne compte vraiment "
-        "que si la news est spécifique <em>et</em> peu ambiguë). Et elle ne "
-        "dit rien sur le bon moment pour agir : elle donne le même score "
-        "quelle que soit la fenêtre temporelle. Deux limites, deux questions "
-        "à laquelle ce POC va répondre."
+        "La formule actuelle <strong>pèse 8 facteurs linéairement</strong>, avec "
+        "des poids choisis à l'œil par les ingénieurs Foresight. La voici telle "
+        "qu'elle tourne en production :"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.code(
+        """signal_score = 100 × (
+    0.75 × ( 0.15·freshness + 0.10·source_weight + 0.15·confirmation
+           + 0.60·( 0.65·impact_strength + 0.35·llm_confidence ) )
+  + 0.25 × ( 0.40·liquidity + 0.35·spread + 0.25·time_to_resolution )
+)""",
+        language="text",
+    )
+    st.markdown(
+        "<div class='lead'>"
+        "En développant les parenthèses, on obtient <strong>8 poids effectifs</strong> "
+        "sur les 8 facteurs (somme = 1) :"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    from config import HEURISTIC_WEIGHTS
+    weights_df = pd.DataFrame({
+        "Facteur": list(HEURISTIC_WEIGHTS.keys()),
+        "Poids effectif": list(HEURISTIC_WEIGHTS.values()),
+    })
+    st.dataframe(
+        weights_df.style.format({"Poids effectif": "{:.4f}"}),
+        use_container_width=True, hide_index=True,
+    )
+    st.markdown("&nbsp;")
+    st.markdown(
+        "<div class='lead'>"
+        "<strong>Elle plafonne à AUC ~0,69 sur le test set</strong> — autant dire "
+        "qu'elle rate les interactions entre variables (par ex. l'impact ne compte "
+        "vraiment que si la news est spécifique <em>et</em> peu ambiguë). Et elle "
+        "ne dit rien sur le bon moment pour agir : elle donne le même score quelle "
+        "que soit la fenêtre temporelle. <strong>Deux limites, deux questions "
+        "auxquelles ce POC va répondre.</strong>"
         "</div>",
         unsafe_allow_html=True,
     )
