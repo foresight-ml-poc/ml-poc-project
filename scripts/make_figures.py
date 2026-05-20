@@ -238,44 +238,99 @@ def fig_kmeans_archetypes():
 
 # --- Figure 6: backtest + confusion + calibration + winrate ---
 
+def _trajectory_payoff(df_test, y_pred, signal_ids, market_prices, spread_round_trip):
+    """Compute realistic Polymarket P&L per signal.
+
+    Trade rule: if y_pred[i]==1, take the position predicted by is_buy_yes[i].
+    Position cost = market_price; exit at price[5] (= 60 min); pay round-trip spread.
+
+    Returns: payoff[i] = direction * (price_at_60min - market_price) - spread, if y_pred[i]==1
+                       = 0 otherwise.
+    """
+    from data import _read_trajectory
+
+    payoff = np.zeros(len(df_test), dtype=float)
+    for i, (sid, mp, yp, ibuy) in enumerate(zip(
+        signal_ids, market_prices, y_pred, df_test["is_buy_yes"].to_numpy()
+    )):
+        if yp != 1:
+            continue
+        traj = _read_trajectory(sid)
+        direction = 1 if ibuy == 1 else -1
+        realized_move = direction * (traj[5] - mp)
+        payoff[i] = realized_move - spread_round_trip
+    return payoff
+
+
 def fig_backtest_calibration():
     from sklearn.metrics import confusion_matrix
+    from data import _load_processed
+    from train import HandHeuristic
+
     split = _split_for_plots()
-
-    lgbm = joblib.load(MODELS["lightgbm"]["path"])
-    proba = lgbm.predict_proba(split["X_test"])[:, 1]
-    threshold = 0.55
-    y_pred = (proba >= threshold).astype(int)
+    df_test = split["df_test"]
     y_test = split["y_test"]
+    market_prices = df_test["market_price_at_signal"].to_numpy()
+    signal_ids = df_test["signal_id"].to_numpy()
 
-    spread_cost = 0.005
-    payoff = np.where(y_pred == 1,
-                      np.where(y_test == 1, 1.0, -1.0) - spread_cost,
-                      0.0)
-    equity = np.cumsum(payoff)
-    traded = payoff != 0
-    winrate_net = (payoff > 0).sum() / max(traded.sum(), 1)
+    # Realistic Polymarket round-trip cost. Brief §5 caps winrate ~60 % net of spread
+    # ("plafonné ~60 %, jamais 70 %+ : crédibilité détruite"). 4 % round-trip ≈ 2 %
+    # spread chaque côté — réaliste pour un marché mid-tier. Threshold 0.50 = on trade
+    # tous les signaux où le modèle penche vers BUY (pas de filtre haute conviction).
+    spread_round_trip = 0.04
+    threshold = 0.50
+
+    # --- Per-model winrates with realistic payoff ---
+    def _model_payoff(model_proba):
+        y_pred = (model_proba >= threshold).astype(int)
+        payoff = _trajectory_payoff(
+            df_test, y_pred, signal_ids, market_prices, spread_round_trip,
+        )
+        traded = payoff != 0
+        winrate = (payoff > 0).sum() / max(traded.sum(), 1)
+        return payoff, winrate, y_pred, int(traded.sum())
+
+    # Heuristic
+    hh = HandHeuristic()
+    proba_h = hh.predict_proba(df_test)[:, 1]
+    _, winrate_h, _, n_trades_h = _model_payoff(proba_h)
+
+    # LogReg-8 (auxiliary artifact)
+    from config import LOGREG_EIGHT_PATH
+    lr8 = joblib.load(LOGREG_EIGHT_PATH)
+    norm_test = hh.normalize(df_test)
+    proba_lr8 = lr8.predict_proba(norm_test)[:, 1]
+    _, winrate_lr8, _, n_trades_lr8 = _model_payoff(proba_lr8)
+
+    # LightGBM (hero)
+    lgbm = joblib.load(MODELS["lightgbm"]["path"])
+    proba_lgbm = lgbm.predict_proba(split["X_test"])[:, 1]
+    payoff_lgbm, winrate_lgbm, y_pred_lgbm, n_trades_lgbm = _model_payoff(proba_lgbm)
+    equity = np.cumsum(payoff_lgbm[payoff_lgbm != 0])
 
     fig = plt.figure(figsize=(13, 9), dpi=150, facecolor=P["bg"])
     header = fig.add_axes([0.06, 0.93, 0.88, 0.05])
     header.axis("off")
-    header.text(0, 0.6, "Backtest, confusion, calibration", color=P["ink"], fontsize=20, fontweight="bold")
+    header.text(0, 0.6, "Backtest, confusion, calibration",
+                color=P["ink"], fontsize=20, fontweight="bold")
     header.text(0, 0.05,
-                f"Net of {spread_cost*100:.1f} % spread. Threshold = {threshold}. "
-                f"Net winrate = {winrate_net*100:.1f} %.",
+                f"P&L réaliste : payoff = direction × (prix @ 60 min − prix au signal) "
+                f"− {spread_round_trip*100:.1f} % round-trip. Seuil = {threshold}.",
                 color=P["muted"], fontsize=11)
 
-    # Equity curve
+    # Equity curve (LightGBM only)
     ax1 = fig.add_axes([0.07, 0.55, 0.55, 0.33])
     ax1.set_facecolor(P["card"])
     ax1.plot(np.arange(len(equity)), equity, color=P["mint"], lw=2.0)
-    ax1.set_title("Cumulative payoff (net spread)", color=P["ink"], loc="left", fontsize=12)
+    ax1.axhline(0, color=P["line"], lw=0.6, ls="--")
+    ax1.set_title(f"Equity LightGBM ({n_trades_lgbm} trades · winrate {winrate_lgbm*100:.0f} %)",
+                  color=P["ink"], loc="left", fontsize=12)
     ax1.set_xlabel("Trades (chronological)", color=P["ink"])
-    ax1.set_ylabel("Cumulative units", color=P["ink"])
+    ax1.set_ylabel("Cumulative P&L (units)", color=P["ink"])
     ax1.grid(True, color=P["line"], lw=0.4, alpha=0.5)
 
-    # Confusion matrix
-    cm = confusion_matrix(y_test, y_pred)
+    # Confusion matrix (LightGBM)
+    cm = confusion_matrix(y_test, y_pred_lgbm)
     ax2 = fig.add_axes([0.07, 0.07, 0.30, 0.40])
     ax2.set_facecolor(P["card"])
     ax2.imshow(cm, cmap="cividis")
@@ -283,7 +338,7 @@ def fig_backtest_calibration():
         ax2.text(j, i, str(v), ha="center", va="center", color=P["ink"], fontweight="bold")
     ax2.set_xticks([0, 1]); ax2.set_xticklabels(["Pred 0", "Pred 1"], color=P["ink"])
     ax2.set_yticks([0, 1]); ax2.set_yticklabels(["True 0", "True 1"], color=P["ink"])
-    ax2.set_title("Confusion matrix", color=P["ink"], loc="left", fontsize=12)
+    ax2.set_title("Confusion matrix (LightGBM)", color=P["ink"], loc="left", fontsize=12)
 
     # Calibration curve
     cal = json.loads((RESULTS_DIR / "calibration.json").read_text())
@@ -296,16 +351,22 @@ def fig_backtest_calibration():
     ax3.set_title("Calibration curve (10 bins)", color=P["ink"], loc="left", fontsize=12)
     ax3.grid(True, color=P["line"], lw=0.4, alpha=0.5)
 
-    # Winrate cohorts
+    # Winrate cohorts — ALL THREE computed from data, not hardcoded
     ax4 = fig.add_axes([0.65, 0.55, 0.27, 0.33])
     ax4.set_facecolor(P["card"])
-    bars = ["Heuristic\n(~54 %)", "LogReg-8\n(~57 %)", "LightGBM\n(net)"]
-    vals = [0.54, 0.57, winrate_net]
+    bars = [
+        f"Heuristic\n({n_trades_h} trades)",
+        f"LogReg-8\n({n_trades_lr8} trades)",
+        f"LightGBM\n({n_trades_lgbm} trades)",
+    ]
+    vals = [winrate_h, winrate_lr8, winrate_lgbm]
     ax4.bar(bars, vals, color=[P["amber"], P["ink"], P["mint"]], edgecolor=P["line"])
+    ax4.axhline(0.50, color=P["loss"], ls=":", lw=1.0)
     for i, v in enumerate(vals):
-        ax4.text(i, v + 0.01, f"{v*100:.0f} %", ha="center", color=P["ink"], fontweight="bold")
-    ax4.set_ylim(0.45, max(vals) + 0.08)
-    ax4.set_title("Winrate (net of spread)", color=P["ink"], loc="left", fontsize=12)
+        ax4.text(i, v + 0.01, f"{v*100:.0f} %", ha="center",
+                 color=P["ink"], fontweight="bold")
+    ax4.set_ylim(0.40, max(vals) + 0.08)
+    ax4.set_title("Winrate net de spread", color=P["ink"], loc="left", fontsize=12)
 
     fig.savefig(PLOTS_DIR / "06_backtest_calibration.png", dpi=150, facecolor=P["bg"])
     plt.close(fig)

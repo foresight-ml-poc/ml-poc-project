@@ -479,16 +479,24 @@ def _section_proof():
     st.markdown("## L'AUC c'est joli. Le P&L c'est la vérité.")
     st.markdown(
         "<div class='lead'>"
-        "Backtest sur le test set : on prend toutes les positions BUY que le "
-        "modèle recommande au-dessus du seuil de décision, on déduit un "
-        "spread de 0,5 % par trade. La courbe d'equity monte. Calibration : "
-        "les probabilités du modèle correspondent à des fréquences "
-        "observées proches (sur la diagonale). Confusion matrix : où on se "
-        "trompe encore."
+        "Backtest réaliste sur le test set : pour chaque signal au-dessus du seuil "
+        "de décision (0,50), on simule l'entrée au prix marché et la sortie 60 "
+        "minutes plus tard sur la trajectoire enregistrée. <strong>Payoff = "
+        "direction × (prix @ 60 min − prix d'entrée) − 4 % de spread round-trip</strong> "
+        "(coût réaliste pour un marché Polymarket mid-tier). Un trade "
+        "« directionnellement correct mais mouvement trop petit » devient perdant — "
+        "c'est exactement ce que le brief impose pour ne pas gonfler le winrate."
         "</div>",
         unsafe_allow_html=True,
     )
     st.image(str(PLOTS_DIR / "06_backtest_calibration.png"))
+    st.caption(
+        "Les trois winrates en bas à droite sont **calculés depuis la donnée** "
+        "(pas hardcodés depuis le brief). Equity curve en haut à gauche = "
+        "P&L cumulé LightGBM trade après trade. Calibration en bas à droite : "
+        "plus la courbe colle à la diagonale, plus les probabilités du modèle "
+        "sont fiables — utile pour choisir le seuil en production."
+    )
 
 
 # ---------------------------------------------------------------------------
